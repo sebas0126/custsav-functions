@@ -92,14 +92,14 @@ exports.updateUserMoney = functions.firestore
 		});
 	});
 
-exports.updateTotalMoney = functions.firestore
+exports.updateMonthTotal = functions.firestore
 	.document(`${CUSTSAV}/{custsavId}/${USERS}/{userId}/${SAVINGS}/{monthId}`)
 	.onUpdate((snap, context) => {
 		const newValue = snap.after.data();
 		const previousValue = snap.before.data();
-		if (previousValue.moneyTotal === newValue.moneyTotal) return null;
-		return snap.after.ref.set({
-			moneyTotal: newValue.lotteryTotal + newValue.savingsTotal + newValue.eventsTotal + newValue.winTotal
+		if (previousValue.money === newValue.money) return null; //El dinero sigue siendo el mismo, revisar la condicion
+		return snap.ref.set({
+			money: newValue.lottery + newValue.savings + newValue.events + newValue.win
 		}, { merge: true })
 	});
 
