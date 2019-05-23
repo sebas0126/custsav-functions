@@ -2,9 +2,10 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 
 const USERS = 'users';
-const SAVINGS = 'savings';
-const CUSTSAV = 'custsav';
-const CUSTSAV_DATA = 'custsavData';
+const MONTHLY_SAVINGS = 'monthlySavings';
+const SAVING = 'saving';
+const SAVING_DATA = 'savingData';
+const JOIN_REQUEST = 'joinRequest';
 
 admin.initializeApp(functions.config().firebase);
 
@@ -14,59 +15,33 @@ exports.helloWorld = functions.https.onRequest((request, response) => {
 	response.send("Hello from Firebase!");
 });
 
-exports.createUser = functions.firestore
-	.document(`${USERS}/{userId}`)
-	.onCreate(snap => {
-		return snap.ref.set({
-			prueba: "Success!!!"
-		}, { merge: true });
-	});
-
 exports.updateUser = functions.firestore
 	.document(`${USERS}/{userId}`)
 	.onUpdate((snap, context) => {
 		const newValue = snap.after.data();
 		const previousValue = snap.before.data();
-
-		if (previousValue[CUSTSAV] === newValue[CUSTSAV]) return null;
-
-		let batch = db.batch();
-
-		let custsavUserRef = db.doc(`${CUSTSAV}/${previousValue[CUSTSAV]}/${USERS}/${context.params.userId}`);
-		if (!newValue[CUSTSAV]) {
-			batch.delete(custsavUserRef);
-			for (let i = 0; i < 12; i++) {
-				const monthRef = custsavUserRef.collection(SAVINGS).doc(String(i));
-				batch.delete(monthRef);
-			}
-			return batch.commit();
+		if (previousValue[SAVING] === newValue[SAVING]) return null;
+		let savingUserRef = db.doc(`${SAVING}/${previousValue[SAVING]}/${USERS}/${context.params.userId}`);
+		if (!newValue[SAVING]) {
+			return savingUserRef.delete();
 		}
-		custsavUserRef = db.doc(`${CUSTSAV}/${newValue[CUSTSAV]}/${USERS}/${context.params.userId}`);
-		batch.set(custsavUserRef, {
+		let batch = db.batch();
+		savingUserRef = db.doc(`${SAVING}/${newValue[SAVING]}/${USERS}/${context.params.userId}`);
+		batch.set(savingUserRef, {
 			moneyTotal: 0,
 			lotteryTotal: 0,
 			savingsTotal: 0,
 			eventsTotal: 0,
 			winTotal: 0
 		})
-		for (let i = 0; i < 12; i++) {
-			const monthRef = custsavUserRef.collection(SAVINGS).doc(String(i));
-			batch.set(monthRef, {
-				money: 0,
-				lottery: 0,
-				savings: 0,
-				events: 0,
-				win: 0
-			})
-		}
 		return batch.commit();
 	});
 
-exports.createCustsav = functions.firestore
-	.document(`${CUSTSAV_DATA}/{custsavId}`)
+exports.createSaving = functions.firestore
+	.document(`${SAVING_DATA}/{savingId}`)
 	.onCreate((snap, context) => {
-		let custsavRef = db.doc(`${CUSTSAV}/${context.params.custsavId}`);
-		return custsavRef.set({
+		let savingRef = db.doc(`${SAVING}/${context.params.savingId}`);
+		return savingRef.set({
 			moneyTotal: 0,
 			lotteryTotal: 0,
 			savingsTotal: 0,
@@ -76,11 +51,11 @@ exports.createCustsav = functions.firestore
 	});
 
 exports.updateUserMoney = functions.firestore
-	.document(`${CUSTSAV}/{custsavId}/${USERS}/{userId}/${SAVINGS}/{monthId}`)
+	.document(`${SAVING}/{savingId}/${USERS}/{userId}/${MONTHLY_SAVINGS}/{monthId}`)
 	.onUpdate((snap, context) => {
 		const newValue = snap.after.data();
 		const previousValue = snap.before.data();
-		const monthRef = db.doc(`${CUSTSAV}/${context.params.custsavId}/${USERS}/${context.params.userId}`);
+		const monthRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
 		return monthRef.get().then((ref) => {
 			let data = ref.data();
 			return monthRef.set({
@@ -93,7 +68,7 @@ exports.updateUserMoney = functions.firestore
 	});
 
 exports.updateMonthTotal = functions.firestore
-	.document(`${CUSTSAV}/{custsavId}/${USERS}/{userId}/${SAVINGS}/{monthId}`)
+	.document(`${SAVING}/{savingId}/${USERS}/{userId}/${MONTHLY_SAVINGS}/{monthId}`)
 	.onUpdate((snap, context) => {
 		const newValue = snap.after.data();
 		const previousValue = snap.before.data();
@@ -107,7 +82,7 @@ exports.updateMonthTotal = functions.firestore
 	});
 
 exports.updateTotalMoney = functions.firestore
-	.document(`${CUSTSAV}/{custsavId}/${USERS}/{userId}`)
+	.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
 	.onUpdate((snap, context) => {
 		const newValue = snap.after.data();
 		const previousValue = snap.before.data();
@@ -119,3 +94,66 @@ exports.updateTotalMoney = functions.firestore
 			moneyTotal: newValue.lotteryTotal + newValue.savingsTotal + newValue.eventsTotal + newValue.winTotal
 		}, { merge: true })
 	});
+
+exports.updateRequest = functions.firestore
+	.document(`${JOIN_REQUEST}/{requestId}`)
+	.onUpdate((snap, context) => {
+		const newValue = snap.after.data();
+		const previousValue = snap.before.data();
+		if(newValue.approved === previousValue.approved) return null;
+		if(newValue.approved){
+			let batch = db.batch();
+			let requestRef = db.doc(`${JOIN_REQUEST}/${context.params.requestId}`);
+			batch.delete(requestRef);
+			let userRef = db.doc(`${USERS}/${newValue.userId}`);
+			batch.update(userRef, {
+				saving: newValue.savingId
+			})
+			return batch.commit();
+		}
+		return null;
+	});
+
+exports.createUserInSaving = functions.firestore
+.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
+.onCreate((snap, context) => {
+	let batch = db.batch();
+	savingUserRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
+	for (let i = 0; i < 12; i++) {
+		const monthRef = savingUserRef.collection(MONTHLY_SAVINGS).doc(String(i));
+		batch.set(monthRef, {
+			money: 0,
+			lottery: 0,
+			savings: 0,
+			events: 0,
+			win: 0
+		})
+	}
+	let savingDataRef = db.doc(`${SAVING_DATA}/${context.params.savingId}`);
+	return savingDataRef.get().then(ref => {
+		let data = ref.data();
+		batch.update(savingDataRef, {
+			userCount: data.userCount + 1
+		})
+		return batch.commit();
+	}).catch(e => console.log(e))
+});
+
+exports.deleteUserInSaving = functions.firestore
+.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
+.onDelete((snap, context) => {
+	let batch = db.batch();
+	savingUserRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
+	for (let i = 0; i < 12; i++) {
+		const monthRef = savingUserRef.collection(MONTHLY_SAVINGS).doc(String(i));
+		batch.delete(monthRef);
+	}
+	let savingDataRef = db.doc(`${SAVING_DATA}/${context.params.savingId}`);
+	return savingDataRef.get().then(ref => {
+		let data = ref.data();
+		batch.update(savingDataRef, {
+			userCount: data.userCount - 1
+		})
+		return batch.commit();
+	}).catch(e => console.log(e))
+})
