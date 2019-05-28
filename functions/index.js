@@ -1,11 +1,15 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const messages = require('./messages');
 
 const USERS = 'users';
 const MONTHLY_SAVINGS = 'monthlySavings';
 const SAVING = 'saving';
 const SAVING_DATA = 'savingData';
 const JOIN_REQUEST = 'joinRequest';
+const USER_MESSAGE = 'userMessage';
+const SAVING_MESSAGE = 'savingMessage';
+const MESSAGE = 'message';
 
 admin.initializeApp(functions.config().firebase);
 
@@ -14,6 +18,15 @@ var db = admin.firestore();
 exports.helloWorld = functions.https.onRequest((request, response) => {
 	response.send("Hello from Firebase!");
 });
+
+exports.createUser = functions.firestore
+	.document(`${USERS}/{userId}`)
+	.onCreate((snap, context) => {
+		let messageRef = db.doc(`${USER_MESSAGE}/${context.params.userId}/${MESSAGE}/${messages.messageGroup.request}`);
+		return messageRef.set(
+			messages.noSavingMessage
+		)
+	})
 
 exports.updateUser = functions.firestore
 	.document(`${USERS}/{userId}`)
@@ -100,60 +113,83 @@ exports.updateRequest = functions.firestore
 	.onUpdate((snap, context) => {
 		const newValue = snap.after.data();
 		const previousValue = snap.before.data();
-		if(newValue.approved === previousValue.approved) return null;
-		if(newValue.approved){
+		if (newValue.approved === previousValue.approved) return null;
+		if (newValue.approved) {
 			let batch = db.batch();
 			let requestRef = db.doc(`${JOIN_REQUEST}/${context.params.requestId}`);
 			batch.delete(requestRef);
 			let userRef = db.doc(`${USERS}/${newValue.userId}`);
 			batch.update(userRef, {
-				saving: newValue.savingId
+				saving: newValue.savingId,
+				request: admin.firestore.FieldValue.delete()
 			})
+			let messageRef = db.doc(`${USER_MESSAGE}/${newValue.userId}/${MESSAGE}/${messages.messageGroup.request}`);
+			batch.delete(messageRef);
 			return batch.commit();
 		}
 		return null;
 	});
 
-exports.createUserInSaving = functions.firestore
-.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
-.onCreate((snap, context) => {
-	let batch = db.batch();
-	savingUserRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
-	for (let i = 0; i < 12; i++) {
-		const monthRef = savingUserRef.collection(MONTHLY_SAVINGS).doc(String(i));
-		batch.set(monthRef, {
-			money: 0,
-			lottery: 0,
-			savings: 0,
-			events: 0,
-			win: 0
+exports.createRequest = functions.firestore
+	.document(`${JOIN_REQUEST}/{requestId}`)
+	.onCreate((snap, context) => {
+		let batch = db.batch();
+		let userRef = db.doc(`${USERS}/${snap.data().userId}`);
+		batch.update(userRef, {
+			request: context.params.requestId
 		})
-	}
-	let savingDataRef = db.doc(`${SAVING_DATA}/${context.params.savingId}`);
-	return savingDataRef.get().then(ref => {
-		let data = ref.data();
-		batch.update(savingDataRef, {
-			userCount: data.userCount + 1
-		})
+		let messageRef = db.doc(`${USER_MESSAGE}/${snap.data().userId}/${MESSAGE}/${messages.messageGroup.request}`);
+		batch.set(messageRef,
+			messages.requestMessage
+		)
 		return batch.commit();
-	}).catch(e => console.log(e))
-});
+	});
+
+exports.createUserInSaving = functions.firestore
+	.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
+	.onCreate((snap, context) => {
+		let batch = db.batch();
+		savingUserRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
+		for (let i = 0; i < 12; i++) {
+			const monthRef = savingUserRef.collection(MONTHLY_SAVINGS).doc(String(i));
+			batch.set(monthRef, {
+				money: 0,
+				lottery: 0,
+				savings: 0,
+				events: 0,
+				win: 0
+			})
+		}
+		let savingDataRef = db.doc(`${SAVING_DATA}/${context.params.savingId}`);
+		return savingDataRef.get().then(ref => {
+			let data = ref.data();
+			batch.update(savingDataRef, {
+				userCount: data.userCount + 1
+			})
+			return batch.commit();
+		}).catch(e => console.log(e))
+	});
 
 exports.deleteUserInSaving = functions.firestore
-.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
-.onDelete((snap, context) => {
-	let batch = db.batch();
-	savingUserRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
-	for (let i = 0; i < 12; i++) {
-		const monthRef = savingUserRef.collection(MONTHLY_SAVINGS).doc(String(i));
-		batch.delete(monthRef);
-	}
-	let savingDataRef = db.doc(`${SAVING_DATA}/${context.params.savingId}`);
-	return savingDataRef.get().then(ref => {
-		let data = ref.data();
-		batch.update(savingDataRef, {
-			userCount: data.userCount - 1
-		})
-		return batch.commit();
-	}).catch(e => console.log(e))
-})
+	.document(`${SAVING}/{savingId}/${USERS}/{userId}`)
+	.onDelete((snap, context) => {
+		let batch = db.batch();
+		savingUserRef = db.doc(`${SAVING}/${context.params.savingId}/${USERS}/${context.params.userId}`);
+		for (let i = 0; i < 12; i++) {
+			const monthRef = savingUserRef.collection(MONTHLY_SAVINGS).doc(String(i));
+			batch.delete(monthRef);
+		}
+		let savingDataRef = db.doc(`${SAVING_DATA}/${context.params.savingId}`);
+		return savingDataRef.get().then(ref => {
+			let data = ref.data();
+			batch.update(savingDataRef, {
+				userCount: data.userCount - 1
+			})
+			let messageRef = db.doc(`${USER_MESSAGE}/${context.params.userId}/${MESSAGE}/${messages.messageGroup.request}`);
+			batch.set(messageRef,
+				messages.noSavingMessage
+			)
+			return batch.commit();
+		}).catch(e => console.log(e))
+
+	})
